@@ -1,1 +1,4 @@
-ci_test
+ci_test/
+results
+test_results
+helpers.pyc

@@ -11,11 +11,16 @@ For now, the runner just acknowledge communication from dispatcher
 '''
 
 import argparse
+import subprocess
 import errno
 import re
+import os
 import socket
 import SocketServer
 import time
+import threading
+import unittest
+import helpers
 
 # custom TCP class with some state 
 class ThreadingTCPServer(SocketServer.ThreadingMixIn, SocketServer.TCPServer):
@@ -53,10 +58,29 @@ class TestHandler(SocketServer.BaseRequestHandler):
                 commit_id = command_groups.group(2)[1:]
 
                 self.server.busy = True
-                print 'TBD test runner for commit id: %s' % commit_id
+                print 'Running tests for commit id: %s' % commit_id
+                self.run_tests(commit_id, self.server.repo_folder)
                 self.server.busy = False
         else:
             self.request.sendall('Invalid command')
+
+    def run_tests(self, commit_id, repo_folder):
+        output = subprocess.check_output(['./test_runner_script.sh', repo_folder, commit_id])
+        print output
+
+        test_folder = os.path.join(repo_folder, 'tests')
+        suite = unittest.TestLoader().discover(test_folder)
+
+        result_file = open('results', 'w')
+        unittest.TextTestRunner(result_file).run(suite)
+        result_file.close()
+
+        result_file = open('results', 'r')
+        output = result_file.read()
+
+        helpers.communicate(self.server.dispatcher_server['host'],
+                            int(self.server.dispatcher_server['port']),
+                            'results:%s:%s:%s' % (commit_id, len(output), output))
 
 def parse_args(range_start):
     parser = argparse.ArgumentParser()
@@ -82,26 +106,64 @@ def serve():
     args = parse_args(range_start)
 
     runner_port = None
+    runner_host = args.host
     tries = 0
     if not args.port:
         runner_port = range_start
         while tries < 100:
             try:
-                server = ThreadingTCPServer((args.host, runner_port), TestHandler)
+                server = ThreadingTCPServer((runner_host, runner_port), TestHandler)
                 print server
                 print runner_port
                 break
             except socket.error as e:
                 if e.errno == errno.EADDRINUSE:
                     tries += 1
-                    runner_port = runer_port + tries
+                    runner_port = runner_port + tries
                     continue
                 else:
                     raise e
     else:
-        server = ThreadingTCPServer((args.host, int(args.port)), TestHandler)
+        runner_port = int(args.port)
+        server = ThreadingTCPServer((runner_host, runner_port), TestHandler)
 
-    server.serve_forever()
+    server.repo_folder = args.repo
+    dispatcher_host, dispatcher_port = args.dispatcher_server.split(':')
+    server.dispatcher_server = { 'host': dispatcher_host, 'port': dispatcher_port } 
+
+    # register test runner with dispatcher
+    response = helpers.communicate(server.dispatcher_server['host'], int(server.dispatcher_server['port']),
+                                'register:%s:%s' % (runner_host, runner_port))
+
+    if response != 'OK':
+        raise Exception('Cannot register with dispatcher')
+
+    # every 5 seconds, ping dispatcher to make sure it is alive
+    def dispatcher_checker(server):
+        while not server.dead:
+            time.sleep(5)
+            if (time.time() - server.latest) > 10:
+                try:
+                    response = helpers.communicate(server.dispatcher_server['host'],
+                                                   int(server.dispatcher_server['port']),
+                                                   'status')
+                    if response != 'OK':
+                        print 'Dispatcher is no longer functional'
+                        server.shutdown()
+                        return
+                except socket.error as e:
+                    print 'Cannot communicate with dispatcher: %s' % e
+                    server.shutdown()
+                    return
+
+    # each runner runs on a separate thread
+    t = threading.Thread(target=dispatcher_checker, args=(server,))
+    try:
+        t.start()
+        server.serve_forever()
+    except (KeyboardInterrupt, Exception):
+        server.dead = True
+        t.join()
 
 if __name__ == "__main__":
     serve() 

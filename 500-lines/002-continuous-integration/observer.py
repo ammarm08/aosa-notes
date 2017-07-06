@@ -1,10 +1,14 @@
 '''
 Observer.
 
-Checks for new commits to master.
-Logs each new commit out to console.
+Checks target repo for new commits.
+If new commit found, sends message to dispatcher.
 
-TBD: dispatch + test-runner + reporter
+Failure handling:
+- Repo checking Exception
+- Pinging dispatcher Exception
+- Sending commit Exception
+- Invalid response Exception
 '''
 
 import argparse
@@ -55,7 +59,7 @@ def poll():
             if response == 'OK':
                 commit = ''
                 with open('.commit_id', 'r') as f:
-                    commit = f.readline()
+                    commit = f.readline().strip()
 
                 # tell dispatcher about latest commit (handle errors)
                 response = helpers.communicate(dispatcher_host, int(dispatcher_port), 'dispatch:%s' % commit)
