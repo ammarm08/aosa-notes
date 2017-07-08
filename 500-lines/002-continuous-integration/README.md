@@ -11,7 +11,7 @@ Following along here: http://aosabook.org/en/500L/a-continuous-integration-syste
 In one terminal, start the dispatcher
 
 ```bash
-$ python dispatcher.y
+$ python dispatcher.py
 ```
 
 In another terminal, start the test runner
