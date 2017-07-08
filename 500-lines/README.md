@@ -3,7 +3,7 @@
 I will probably be working through these out of order
 
 - [ ] Blockcode
-- [ ] Continuous Integration
+- [X] Continuous Integration
 - [ ] Clustering by Consensus
 - [ ] Dynamic Build System
 - [ ] Web Crawler
